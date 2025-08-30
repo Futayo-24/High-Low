@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>♡えむしのHigh-Low♡</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, sans-serif; margin:16px; }
+    h1 { font-size:18px; margin:0 0 8px; text-align:center; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .grid { display:grid; gap:8px; grid-template-columns: repeat(5, minmax(0,1fr)); }
+    @media (max-width: 980px){ .grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 620px){ .grid { grid-template-columns: 1fr; } }
+
+    .card { border:1px solid #ddd; border-radius:8px; padding:8px; background:#fff; }
+    .pill { padding:2px 6px; border:1px solid #ddd; border-radius:999px; font-size:12px; background:#fafafa; }
+    input, button { font-size:14px; padding:6px 8px; }
+    input[type="number"]{ width:100%; box-sizing:border-box; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border:1px solid #ddd; padding:6px 8px; text-align:center; font-size:12px; }
+    th { background:#fafafa; position:sticky; top:0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    /* High / Low */
+    .choiceRow { display:flex; gap:8px; width:100%; }
+    .btn-choice { border:1px solid #ddd; border-radius:8px; background:#fff; cursor:pointer; font-size:18px; padding:12px 16px; flex:1; }
+    .btn-choice.active { background:#e6f4ff; }
+    .btn-choice.low.active { background:#ffe9df; }
+
+    /* 状態の視覚化 */
+    .card.is-enabled{ border-color:#8ec5ff; box-shadow:0 0 0 2px rgba(142,197,255,.25) inset; background:#f7fbff; }
+    .card.is-stopped,.card.is-busted{ background:#eee; border-color:#bbb; color:#777; filter:grayscale(0.4); }
+
+    .nameRow{ display:flex; justify-content:space-between; align-items:center; }
+    .pts{ font-weight:800; font-size:20px; }
+    .delta{ display:none !important; }
+
+    /* 中央カードのスート表示 */
+    #card{ display:flex; align-items:center; gap:6px; }
+    #card .suit{ font-size:18px; margin-top:6px; }
+    #card .suit.red{ color:#d00; }
+
+    #sdWrap{ display:none; text-align:center; margin:8px 0; }
+    #sdWrap img{ max-height:80px; }
+  </style>
+</head>
+<body>
+  <h1>♡えむしのHigh-Low♡</h1>
+
+  <div class="row" style="justify-content:space-between;">
+    <div class="row">
+      <div>ゲーム: <b id="gameNo">0</b></div>
+      <div>ステージ: <b id="stage">0</b></div>
+      <div>状態: <b id="state">待機中</b></div>
+    </div>
+    <div class="row">
+      <button id="start">開始</button>
+      <button id="reveal" disabled>次をめくる</button>
+      <button id="reset">新規（編集に戻る）</button>
+    </div>
+  </div>
+
+  <!-- 中央カード表示 -->
+  <div style="display:flex; justify-content:center; align-items:center; margin:12px 0;">
+    <div class="card" style="width:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px 8px;">
+      <div style="font-size:12px; color:#666;">現在のカード（1〜13）</div>
+      <div id="card" style="font-size:64px; line-height:1; font-weight:800;">–</div>
+      <div style="font-size:12px; color:#666;">同数は続行（勝敗なし） / 13♠はSpecial</div>
+    </div>
+  </div>
+  <div id="sdWrap"><img id="sdImg" alt="SD" /></div>
+
+  <div class="grid" id="players"></div>
+
+  <div class="card" style="margin-top:8px;">
+    <b>履歴</b> <small style="color:#666">（High ○ / Low × / ⏹ 終了:スコア / ＝ 続行）※各ゲーム終了時にリザルト表示</small>
+    <div style="overflow:auto; max-height:50vh; margin-top:6px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Stage</th>
+            <th>前→次</th>
+            <th id="h0">P1</th>
+            <th id="h1">P2</th>
+            <th id="h2">P3</th>
+            <th id="h3">P4</th>
+            <th id="h4">P5</th>
+          </tr>
+        </thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <template id="playerTpl">
+    <div class="card" data-id="">
+      <div class="nameRow">
+
+        <b class="nm">Player</b>
+        <span>
+          <span class="pts mono"><span class="ptsVal">0</span></span>
+          <span class="delta mono">±0</span>
+        </span>
+      </div>
+      <div class="row" style="justify-content:space-between;">
+        <span class="pill st">待機</span>
+        <div class="row">
+          <label><input type="checkbox" class="en"> 有効</label>
+          <button class="end" disabled>終了</button>
+        </div>
+      </div>
+      <div class="row">
+        <input type="text" class="name" placeholder="Player" />
+        <input type="number" class="bet" placeholder="100" min="1" step="1" />
+      </div>
+      <div class="choiceRow">
+        <button class="btn-choice high" data-v="High" disabled>High</button>
+        <button class="btn-choice low"  data-v="Low"  disabled>Low</button>
+      </div>
+      <div class="row"><span class="pill mono">連勝:<span class="w">0</span> ×<span class="m">1</span></span></div>
+    </div>
+  </template>
+
+  <script>
+  // 52枚毎回独立・戻し入れ＆13Special
+  var MAX = 5; function $(s){ return document.querySelector(s) } var COLS = 2 + MAX;
+  var S = { running:false, over:false, stage:0, card:null, gameNo:0, players:[], hist:[] };
+
+  // SDキャラ
+  var SD_DATA = 'img/mccard.png';
+
+  var SUITS = ['S','H','D','C'];
+  function suitMark(s){ return s==='S'?'♠':s==='H'?'♥':s==='D'?'♦':'♣'; }
+  function suitRed(s){ return (s==='H'||s==='D'); }
+  function cardStr(c){ if(!c) return '–'; return (c.r + (suitMark(c.s))); }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    S.players = []; for(var i=0;i<MAX;i++){ S.players.push({ id:i, en:false, name:'Player '+(i+1), bet:0, status:'idle', wins:0, choice:null, final:null, stopStage:null, lastDelta:0, mul:1 }); }
+    bindTopButtons(); renderAll();
+  });
+
+  function bindTopButtons(){ $('#start').addEventListener('click', startGame); $('#reset').onclick = resetGame; $('#reveal').onclick = revealNext; }
+
+  function renderAll(){
+    var g=$('#gameNo'); if(g) g.textContent = S.gameNo; $('#stage').textContent = S.stage;
+    var cEl=$('#card'); if(S.card==null){ cEl.textContent='–'; }
+    else { cEl.innerHTML = '<span class="rank">'+S.card.r+'</span>'+'<span class="suit'+(suitRed(S.card.s)?' red':'')+'">'+suitMark(S.card.s)+'</span>'; }
+    $('#state').textContent = S.over? '終了' : (S.running? '進行中' : '待機中');
+    $('#start').disabled = S.running || activeCount()===0;
+    $('#reveal').disabled = (!S.running) || S.over || (!canReveal());
+    renderPlayers(); renderHistHead(); renderHistBody();
+  }
+
+  function activeCount(){ var c=0; for(var i=0;i<S.players.length;i++){ var p=S.players[i]; if(p.en && p.bet>0) c++; } return c; }
+
+  function renderPlayers(){
+    var wrap = document.getElementById('players'); wrap.innerHTML=''; var tpl = document.getElementById('playerTpl');
+    for(var i=0;i<S.players.length;i++){
+      var p=S.players[i]; var node = tpl.content.cloneNode(true);
+      var card = node.querySelector('[data-id]'); card.setAttribute('data-id', p.id);
+      var nm = node.querySelector('.nm'); var st = node.querySelector('.st'); var en = node.querySelector('.en');
+      var endBtn = node.querySelector('.end'); var nameInp = node.querySelector('.name'); var betInp = node.querySelector('.bet');
+      var btnHigh = node.querySelector('.high'); var btnLow  = node.querySelector('.low');
+      var wEl = node.querySelector('.w'); var mEl = node.querySelector('.m'); var ptsVal = node.querySelector('.ptsVal');
+
+      nm.textContent = p.name; en.checked = !!p.en; nameInp.value = p.name; betInp.value = p.bet || '';
+      wEl.textContent = p.wins; mEl.textContent = (p.wins + 1);
+      var nowPts = (p.status==='playing') ? (p.en ? p.bet*(p.wins+1)* (p.mul||1) : 0) : (p.final!=null ? p.final : 0);
+      ptsVal.textContent = p.en ? nowPts : '—';
+      st.textContent = p.status==='playing' ? 'プレイ中' : (p.status==='stopped' ? '終了' : (p.status==='busted' ? 'バースト' : '待機'));
+
+      if(p.en && p.status==='playing'){ card.classList.add('is-enabled'); } else { card.classList.remove('is-enabled'); }
+      if(p.status==='stopped'){ card.classList.add('is-stopped'); } else { card.classList.remove('is-stopped'); }
+      if(p.status==='busted'){ card.classList.add('is-busted'); } else { card.classList.remove('is-busted'); }
+
+      en.disabled = !!S.running; nameInp.disabled = (!en.checked) || S.running; betInp.disabled  = (!en.checked) || S.running;
+      btnHigh.disabled = (!S.running) || (p.status!=='playing'); btnLow.disabled  = (!S.running) || (p.status!=='playing');
+      btnHigh.classList.toggle('active', p.choice==='High'); btnLow .classList.toggle('active',  p.choice==='Low');
+
+      var canUndo = (S.running && p.status==='stopped' && p.stopStage===S.stage && !S.over);
+      endBtn.textContent = canUndo ? '撤回' : '終了'; endBtn.disabled = (!S.running) || !(p.status==='playing' || canUndo);
+
+      en.onchange = (function(pp, eEl){ return function(){ pp.en=eEl.checked; if(!pp.en){ pp.status='idle'; pp.wins=0; pp.choice=null; pp.final=null; pp.stopStage=null; pp.lastDelta=0; pp.mul=1; } renderAll(); }; })(p, en);
+      nameInp.oninput = (function(pp, nmEl){ return function(){ pp.name = nmEl.value || ('Player '+(pp.id+1)); nm.textContent=pp.name; renderHistHead(); }; })(p, nameInp);
+      betInp.onchange = (function(pp, b){ return function(){ var v=+b.value||0; if(v<0) v=0; pp.bet = Math.floor(v); renderAll(); }; })(p, betInp);
+      btnHigh.onclick = (function(pp){ return function(){ if(!this.disabled){ pp.choice='High'; renderAll(); } } })(p);
+      btnLow .onclick = (function(pp){ return function(){ if(!this.disabled){ pp.choice='Low';  renderAll(); } } })(p);
+      endBtn.onclick  = (function(pp){ return function(){ var cU = (S.running && pp.status==='stopped' && pp.stopStage===S.stage && !S.over); if(cU){ pp.status='playing'; pp.final=null; pp.stopStage=null; pp.lastDelta=0; renderAll(); } else if(S.running && pp.status==='playing'){ cashOut(pp.id); } } })(p);
+
+      wrap.appendChild(node);
+    }
+  }
+
+  function renderHistHead(){ for(var i=0;i<MAX;i++){ var th=document.getElementById('h'+i); if(th){ th.textContent = (S.players[i] ? S.players[i].name : ('P'+(i+1))); } } }
+
+  function renderHistBody(){
+    var tb = document.getElementById('histBody'); tb.innerHTML='';
+    for(var k=0;k<S.hist.length;k++){
+      var h=S.hist[k];
+      if(h.type==='header'){
+        var tr1=document.createElement('tr'); var td1=document.createElement('td'); td1.colSpan=COLS; td1.style.textAlign='left'; td1.style.background='#f0f7ff';
+        td1.textContent = 'Game #'+h.gameNo+' 開始（初期カード: '+cardStr(h.startCard)+'）'; tr1.appendChild(td1); tb.appendChild(tr1); continue;
+      }
+      if(h.type==='result'){
+        var tr2=document.createElement('tr'); var td2=document.createElement('td'); td2.colSpan=COLS; td2.style.textAlign='left'; td2.style.background='#f9f9f9';
+        var html = '<div style="font-weight:700; margin-bottom:4px;">Game #'+h.gameNo+' 結果</div>';
+        html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+        html += '<tr><th style="border:1px solid #ddd; padding:4px;">プレイヤー</th><th style="border:1px solid #ddd; padding:4px;">掛け金</th><th style="border:1px solid #ddd; padding:4px;">没収</th><th style="border:1px solid #ddd; padding:4px;">確定スコア</th></tr>';
+        for(var r=0;r<h.rows.length;r++){
+          var row=h.rows[r];
+          html += '<tr>'+
+                  '<td style="border:1px solid #ddd; padding:4px;">'+row.name+'</td>'+
+                  '<td style="border:1px solid #ddd; padding:4px;" class="mono">'+row.bet+'</td>'+
+                  '<td style="border:1px solid #ddd; padding:4px;" class="mono">'+row.forfeited+'</td>'+
+                  '<td style="border:1px solid #ddd; padding:4px;" class="mono">'+row.final+'</td>'+
+                  '</tr>';
+        }
+        html += '</table>'; td2.innerHTML=html; tr2.appendChild(td2); tb.appendChild(tr2); continue;
+      }
+      var tr=document.createElement('tr'); tr.innerHTML = '<td>'+h.stage+'</td><td>'+cardStr(h.prev)+'→'+cardStr(h.next)+'</td>';
+      for(var i=0;i<MAX;i++){ var td=document.createElement('td'); td.innerHTML = (h.res[i] || '—'); tr.appendChild(td); }
+      tb.appendChild(tr);
+    }
+  }
+
+  // ======= GAME LOGIC =======
+  function startGame(){
+    if(S.running) return; if(activeCount()===0){ alert('有効なプレイヤーがいません'); return; }
+    S.running=true; S.over=false; S.stage=0; S.gameNo = (S.gameNo||0)+1;
+    for(var i=0;i<S.players.length;i++){ var p=S.players[i]; if(p.en){ p.status='playing'; p.wins=0; p.choice=null; p.final=null; p.stopStage=null; p.lastDelta=0; p.mul=1; } else { p.status='idle'; p.wins=0; p.choice=null; p.final=null; p.stopStage=null; p.lastDelta=0; p.mul=1; } }
+    S.card = randCard52(); S.hist.push({ type:'header', gameNo:S.gameNo, startCard:S.card });
+    hideSD(); renderAll();
+  }
+
+  function resetGame(){ S.running=false; S.over=false; S.stage=0; S.card=null; hideSD(); for(var i=0;i<S.players.length;i++){ var p=S.players[i]; p.status='idle'; p.wins=0; p.choice=null; p.final=null; p.stopStage=null; p.lastDelta=0; p.mul=1; } renderAll(); }
+
+　//function randCard52(){ return {r:13, s:'S'}; } // ←テスト終わったら戻して！
+	  
+  function randCard52(){ var r = Math.floor(Math.random()*13)+1; var s = SUITS[Math.floor(Math.random()*4)]; return {r:r, s:s}; }
+
+  function canReveal(){ var any=false, all=true; for(var i=0;i<S.players.length;i++){ var p=S.players[i]; if(p.status==='playing'){ any=true; if(!(p.choice==='High'||p.choice==='Low')) all=false; } } if(!any) return false; return all; }
+
+  function cashOut(pid){ var p = S.players[pid]; if(!S.running || S.over || p.status!=='playing') return; var curr = p.bet * (p.wins + 1) * (p.mul||1); p.final = curr; p.status = 'stopped'; p.stopStage = S.stage; p.choice = null; renderAll(); checkGameOver(); }
+
+  function revealNext(){
+    if(!canReveal()){ alert('プレイ中の全員が High / Low を選んでください'); return; }
+    var prev = S.card, next = randCard52(); var equal = (next.r===prev.r);
+    var row = new Array(MAX); for(var x=0;x<MAX;x++) row[x]='—';
+
+    // 勝敗処理
+    for(var i=0;i<S.players.length;i++){
+      var p=S.players[i];
+      if(p.status==='playing'){
+        if(equal){ row[p.id] = '＝ 続行'; }
+        else { var win = (p.choice==='High' && next.r>prev.r) || (p.choice==='Low' && next.r<prev.r); if(win){ p.wins = p.wins + 1; row[p.id] = p.choice+' ○'; } else { p.status='busted'; p.final=0; row[p.id] = p.choice+' ×'; } }
+        p.choice = null;
+      } else if(p.en){ if(p.status==='stopped' && p.stopStage===S.stage){ row[p.id] = '⏹ 終了:'+p.final; } else if(p.status==='stopped'){ row[p.id] = '⏹'; } else { row[p.id] = '⏹'; } }
+    }
+
+    // Special: 13♠ なら "現在スコアを2倍"（生き残っているプレイヤーのみ）
+    if(next.r===13 && next.s==='S'){
+      for(var j=0;j<S.players.length;j++){ var q=S.players[j]; if(q.status==='playing'){ q.mul = (q.mul||1) * 2; } }
+      showSD();
+    } else { hideSD(); }
+
+    S.hist.push({ type:'stage', gameNo:S.gameNo, stage:S.stage+1, prev:prev, next:next, res:row });
+    S.card = next; S.stage = S.stage + 1; renderAll(); checkGameOver();
+  }
+
+  function checkGameOver(){ var done=true; for(var i=0;i<S.players.length;i++){ var p=S.players[i]; if(p.en && !(p.status==='stopped'||p.status==='busted')){ done=false; break; } }
+    if(done){ S.over = true; var rows=[]; for(var j=0;j<S.players.length;j++){ var q=S.players[j]; if(!q.en) continue; rows.push({ name:q.name, bet:q.bet, forfeited:(q.status==='busted'? q.bet:0), final:(q.status==='stopped'? (q.final||0):0) }); }
+      S.hist.push({ type:'result', gameNo:S.gameNo, rows:rows }); renderAll(); }
+  }
+
+  function showSD(){ var w=$('#sdWrap'), img=$('#sdImg'); if(w&&img){ img.src=SD_DATA; w.style.display='block'; } }
+  function hideSD(){ var w=$('#sdWrap'); if(w){ w.style.display='none'; } }
+  </script>
+</body>
+</html>
